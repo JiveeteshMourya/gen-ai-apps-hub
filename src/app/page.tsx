@@ -1,8 +1,44 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { Message } from "@/db/schema";
 
-type Message = { id: number; role: string; content: string };
+const API_URL = "/api/chat";
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function ChatBubble({ message }: { message: Message }) {
+  const isUser = message.role === "user";
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+          isUser
+            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+            : "bg-white text-zinc-800 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:border-zinc-700"
+        }`}
+      >
+        {message.content}
+      </div>
+    </div>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="bg-white border border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700 rounded-2xl px-4 py-2.5">
+        <span className="flex gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:0ms]" />
+          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:150ms]" />
+          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:300ms]" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -11,27 +47,33 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/chat")
+    fetch(API_URL)
       .then(r => r.json())
       .then(setMessages);
   }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
-  async function send() {
+  const send = async () => {
     const text = input.trim();
     if (!text || loading) return;
+
     setInput("");
     setLoading(true);
 
     // Optimistic user bubble
-    const tempId = Date.now();
-    setMessages(prev => [...prev, { id: tempId, role: "user", content: text }]);
+    const optimistic: Message = {
+      id: Date.now(),
+      role: "user",
+      content: text,
+      createdAt: new Date(),
+    };
+    setMessages(prev => [...prev, optimistic]);
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
@@ -39,26 +81,31 @@ export default function ChatPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Unknown error");
 
-      setMessages(prev => [...prev, { id: tempId + 1, role: "assistant", content: data.reply }]);
+      const reply: Message = {
+        id: Date.now() + 1,
+        role: "assistant",
+        content: data.reply,
+        createdAt: new Date(),
+      };
+      setMessages(prev => [...prev, reply]);
     } catch (err) {
       console.error(err);
-      setMessages(prev => [
-        ...prev,
-        {
-          id: tempId + 1,
-          role: "assistant",
-          content: "⚠️ Something went wrong. Check the server logs.",
-        },
-      ]);
+      const errMsg: Message = {
+        id: Date.now() + 1,
+        role: "assistant",
+        content: "⚠️ Something went wrong. Check the server logs.",
+        createdAt: new Date(),
+      };
+      setMessages(prev => [...prev, errMsg]);
     } finally {
       setLoading(false);
     }
-  }
+  };
 
-  async function clearHistory() {
-    await fetch("/api/chat", { method: "DELETE" });
+  const clearHistory = async () => {
+    await fetch(API_URL, { method: "DELETE" });
     setMessages([]);
-  }
+  };
 
   return (
     <div className="flex flex-col h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -90,33 +137,10 @@ export default function ChatPage() {
           )}
 
           {messages.map(m => (
-            <div
-              key={m.id}
-              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                  m.role === "user"
-                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                    : "bg-white text-zinc-800 border border-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:border-zinc-700"
-                }`}
-              >
-                {m.content}
-              </div>
-            </div>
+            <ChatBubble key={m.id} message={m} />
           ))}
 
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-white border border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700 rounded-2xl px-4 py-2.5">
-                <span className="flex gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:0ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:300ms]" />
-                </span>
-              </div>
-            </div>
-          )}
+          {loading && <TypingIndicator />}
 
           <div ref={bottomRef} />
         </div>

@@ -3,9 +3,10 @@ import { messages } from "@/db/schema";
 import { asc, desc } from "drizzle-orm";
 import OpenAI from "openai";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const SYSTEM_PROMPT = "You are a helpful, concise assistant. Answer clearly and directly.";
+const CONTEXT_WINDOW = 5;
 
 export async function GET() {
   try {
@@ -23,15 +24,13 @@ export async function POST(req: Request) {
 
     await db.insert(messages).values({ role: "user", content: message });
 
-    const history = await db.select().from(messages).orderBy(asc(messages.createdAt));
-
-    // Fetch only the most recent 5 messages for OpenAI context
+    // Most recent N messages for context — full history stays in DB
     const recent = await db
       .select()
       .from(messages)
       .orderBy(desc(messages.createdAt))
-      .limit(5)
-      .then(rows => rows.reverse()); // back to chronological order
+      .limit(CONTEXT_WINDOW)
+      .then(rows => rows.reverse());
 
     const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: SYSTEM_PROMPT },
@@ -41,7 +40,7 @@ export async function POST(req: Request) {
       })),
     ];
 
-    const completion = await client.chat.completions.create({
+    const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: chatMessages,
     });
