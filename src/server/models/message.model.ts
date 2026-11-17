@@ -1,7 +1,5 @@
 import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
-
-export const ROLES = ["user", "assistant"] as const;
-export type Role = (typeof ROLES)[number];
+import { ROLES } from "@/shared/constants/chat.constants";
 
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
@@ -10,4 +8,4 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export type Message = typeof messages.$inferSelect;
+export type MessageRecord = typeof messages.$inferSelect;
