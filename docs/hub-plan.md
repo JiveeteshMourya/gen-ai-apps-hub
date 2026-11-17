@@ -53,12 +53,12 @@ Vault calls go through one small client (`src/lib/vault.ts`): base URL, Bearer k
 
 ## Default apps (edit freely: the vault doesn't care which apps exist)
 
-| App | Writes | Reads | Shows in the demo |
-| --- | --- | --- | --- |
-| **Fitness Coach** | workouts, sleep (`domain: "fitness"`) | `task: "plan"`; activity, sleep, mood, diet, health | Plans around the poor sleep and low mood the Journal heard about |
-| **Journal Companion** | journal entries (`contentType: "journal"`) | `task: "personalize"`; activity, sleep, mood | Reflects on mood using the Fitness data, which it was never told |
-| **Health Assistant** | symptoms, medication (`domain: "healthcare"`, `sensitivityFloor: "protected"`) | `task: "answer"`; health | Its `protected` data stays inside the vault: no other app sees it |
-| **Shopping Assistant** | preferences | `task: "recommend"`; preferences, interests, diet | Gets the diet preferences but never the diagnosis; asks for access via a consent request |
+| App                    | Writes                                                                         | Reads                                               | Shows in the demo                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Fitness Coach**      | workouts, sleep (`domain: "fitness"`)                                          | `task: "plan"`; activity, sleep, mood, diet, health | Plans around the poor sleep and low mood the Journal heard about                         |
+| **Journal Companion**  | journal entries (`contentType: "journal"`)                                     | `task: "personalize"`; activity, sleep, mood        | Reflects on mood using the Fitness data, which it was never told                         |
+| **Health Assistant**   | symptoms, medication (`domain: "healthcare"`, `sensitivityFloor: "protected"`) | `task: "answer"`; health                            | Its `protected` data stays inside the vault: no other app sees it                        |
+| **Shopping Assistant** | preferences                                                                    | `task: "recommend"`; preferences, interests, diet   | Gets the diet preferences but never the diagnosis; asks for access via a consent request |
 
 The owner registers each app on the vault's `/dashboard/apps`, pastes its key into `.env.local`, and sets its grants and sources on `/dashboard/permissions`. That setup is part of the live demo.
 
