@@ -1,19 +1,22 @@
 import { openai } from "@/server/lib/ai";
 import { chatRepository } from "@/server/repository/chat.repository";
+import { getAppConfig } from "@/shared/constants/apps.constants";
 import { SYSTEM_PROMPT } from "@/shared/constants/chat.constants";
 
 export const chatService = {
-  getHistory: () => chatRepository.getAll(),
+  getHistory: (appId: string) => chatRepository.getAllByApp(appId),
 
-  send: async (message: string): Promise<string> => {
-    await chatRepository.insertUser(message);
+  send: async (appId: string, message: string): Promise<string> => {
+    await chatRepository.insertUser(appId, message);
 
-    const recent = await chatRepository.getRecent();
+    const recent = await chatRepository.getRecentByApp(appId);
+    const appConfig = getAppConfig(appId);
+    const systemPrompt = appConfig ? appConfig.systemPrompt : SYSTEM_PROMPT;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         ...recent.map(m => ({
           role: m.role as "user" | "assistant",
           content: m.content,
@@ -22,9 +25,9 @@ export const chatService = {
     });
 
     const reply = completion.choices[0].message.content ?? "";
-    await chatRepository.insertAssistant(reply);
+    await chatRepository.insertAssistant(appId, reply);
     return reply;
   },
 
-  clearHistory: () => chatRepository.deleteAll(),
+  clearHistory: (appId: string) => chatRepository.deleteByApp(appId),
 };

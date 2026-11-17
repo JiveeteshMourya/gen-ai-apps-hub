@@ -6,3 +6,5 @@ export const messageContentSchema = z
   .trim()
   .min(1, "Message cannot be empty")
   .max(4000, "Message cannot exceed 4000 characters");
+
+export const appIdSchema = z.string().trim().min(1, "App ID is required");

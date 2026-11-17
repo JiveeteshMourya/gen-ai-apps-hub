@@ -16,7 +16,8 @@ function toApiError(error: unknown): ApiError {
   }
 
   console.error("Unhandled API error:", error);
-  return new ApiError(500, "internal_error", "Internal server error");
+  const message = error instanceof Error ? error.message : "Internal server error";
+  return new ApiError(500, "internal_error", message);
 }
 
 export function errorResponse(error: unknown): Response {
