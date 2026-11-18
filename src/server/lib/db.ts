@@ -12,6 +12,27 @@ export async function ensureDbInitialized() {
     initPromise = (async () => {
       try {
         await client.unsafe(`
+          CREATE TABLE IF NOT EXISTS direct_messages (
+            id SERIAL PRIMARY KEY,
+            app_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS direct_messages_app_id_idx ON direct_messages (app_id);
+
+          CREATE TABLE IF NOT EXISTS memory_messages (
+            id SERIAL PRIMARY KEY,
+            app_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            context TEXT,
+            metadata JSONB,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS memory_messages_app_id_idx ON memory_messages (app_id);
+
+          -- Legacy compatibility: create messages table if not existing
           CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
             app_id TEXT NOT NULL,
@@ -19,7 +40,6 @@ export async function ensureDbInitialized() {
             content TEXT NOT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT NOW()
           );
-          ALTER TABLE messages ADD COLUMN IF NOT EXISTS app_id TEXT DEFAULT 'study-mentor' NOT NULL;
           CREATE INDEX IF NOT EXISTS messages_app_id_idx ON messages (app_id);
         `);
       } catch (err) {

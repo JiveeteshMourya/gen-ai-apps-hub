@@ -4,6 +4,7 @@ import { appIdSchema, messageContentSchema } from "@/shared/validators/chat.vali
 export const sendMessageSchema = z.object({
   message: messageContentSchema,
   appId: appIdSchema,
+  type: z.enum(["direct", "memory"]).default("direct"),
 });
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;

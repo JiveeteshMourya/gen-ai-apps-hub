@@ -8,3 +8,7 @@ export const messageContentSchema = z
   .max(4000, "Message cannot exceed 4000 characters");
 
 export const appIdSchema = z.string().trim().min(1, "App ID is required");
+
+export const chatTypeSchema = z.enum(["direct", "memory", "all"]);
+
+export type ChatType = z.infer<typeof chatTypeSchema>;
