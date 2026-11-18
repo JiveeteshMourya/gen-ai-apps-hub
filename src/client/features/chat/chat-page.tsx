@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Message } from "@/shared/types/message.types";
 import { AppIcon } from "@/client/components/app-icons";
 import { ChatWidgetPanel } from "@/client/components/chat-widget-panel";
+import { ConsentRequestModal } from "@/client/components/consent-request-modal";
 import { APPS, getAppConfig, type AppId } from "@/shared/constants/apps.constants";
 
 interface ChatPageProps {
@@ -23,19 +24,25 @@ export function ChatPage({ appId }: ChatPageProps) {
   const [memoryMessages, setMemoryMessages] = useState<Message[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryClearing, setMemoryClearing] = useState(false);
+  const [retracting, setRetracting] = useState(false);
 
   // Shared states
   const [input, setInput] = useState("");
   const [initialLoading, setInitialLoading] = useState(true);
   const [clearingAll, setClearingAll] = useState(false);
 
+  // Vault health & consent states
+  const [vaultOnline, setVaultOnline] = useState<boolean | null>(null);
+  const [consentModalOpen, setConsentModalOpen] = useState(false);
+
   // Mobile active tab view ("both" on desktop, "direct" | "memory" on mobile)
   const [mobileTab, setMobileTab] = useState<"direct" | "memory">("direct");
 
-  // Fetch initial chat histories for both models
+  // Fetch initial chat histories for both models + Vault Health
   useEffect(() => {
     let isMounted = true;
 
+    // 1. Fetch dual chat histories
     fetch(`/api/chat?appId=${encodeURIComponent(appId)}`)
       .then(r => r.json())
       .then(res => {
@@ -52,6 +59,18 @@ export function ChatPage({ appId }: ChatPageProps) {
       .catch(console.error)
       .finally(() => {
         if (isMounted) setInitialLoading(false);
+      });
+
+    // 2. Check Vault Health (GET /api/v1/health via /api/vault/health)
+    fetch("/api/vault/health")
+      .then(r => r.json())
+      .then(res => {
+        if (isMounted) {
+          setVaultOnline(Boolean(res.data?.online));
+        }
+      })
+      .catch(() => {
+        if (isMounted) setVaultOnline(false);
       });
 
     return () => {
@@ -183,12 +202,12 @@ export function ChatPage({ appId }: ChatPageProps) {
     }
   };
 
-  // Clear Right (Memory) history only
+  // Clear Right (Memory) history + Retract memories stored in vault
   const clearMemory = async () => {
     if (memoryClearing) return;
     setMemoryClearing(true);
     try {
-      await fetch(`/api/chat?appId=${encodeURIComponent(appId)}&type=memory`, {
+      await fetch(`/api/chat?appId=${encodeURIComponent(appId)}&type=memory&retract=true`, {
         method: "DELETE",
       });
       setMemoryMessages([]);
@@ -199,12 +218,37 @@ export function ChatPage({ appId }: ChatPageProps) {
     }
   };
 
-  // Clear Both histories
+  // Retract memories stored in the Personal Memory Vault on demand
+  const handleRetractVaultMemories = async () => {
+    if (retracting) return;
+    const confirmed = window.confirm(
+      `Retract all memories stored in the Personal Memory Vault by ${appConfig?.name}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setRetracting(true);
+    try {
+      const res = await fetch("/api/vault/retract", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appId }),
+      });
+      const body = await res.json();
+      alert(body.message || "Memories retracted successfully from Vault.");
+    } catch (err) {
+      console.error("Failed to retract memories", err);
+      alert("Failed to retract memories. Check server logs.");
+    } finally {
+      setRetracting(false);
+    }
+  };
+
+  // Clear Both histories (and retract vault memories)
   const clearAll = async () => {
     if (clearingAll) return;
     setClearingAll(true);
     try {
-      await fetch(`/api/chat?appId=${encodeURIComponent(appId)}&type=all`, {
+      await fetch(`/api/chat?appId=${encodeURIComponent(appId)}&type=all&retract=true`, {
         method: "DELETE",
       });
       setDirectMessages([]);
@@ -282,10 +326,43 @@ export function ChatPage({ appId }: ChatPageProps) {
           </div>
         </div>
 
-        {/* Quick App Switcher & Actions */}
-        <div className="flex items-center gap-2">
+        {/* Quick App Switcher, Vault Status & Actions */}
+        <div className="flex items-center gap-2.5">
+          {/* Live Vault Health Status Pill */}
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border shadow-xs transition-colors ${
+              vaultOnline === null
+                ? "bg-zinc-100 text-zinc-500 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
+                : vaultOnline
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                  : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+            }`}
+            title={
+              vaultOnline
+                ? "Connected to Personal Memory Vault on http://localhost:3000"
+                : "Personal Memory Vault is unreachable on http://localhost:3000"
+            }
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                vaultOnline === null
+                  ? "bg-zinc-400 animate-pulse"
+                  : vaultOnline
+                    ? "bg-emerald-500 animate-pulse"
+                    : "bg-rose-500"
+              }`}
+            />
+            <span className="hidden sm:inline">
+              {vaultOnline === null
+                ? "Checking Vault..."
+                : vaultOnline
+                  ? "Vault Online (:3000)"
+                  : "Vault Offline"}
+            </span>
+          </div>
+
           {/* Quick switcher menu */}
-          <div className="hidden lg:flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl text-xs">
+          <div className="hidden xl:flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl text-xs">
             {APPS.map(otherApp => {
               const isActive = otherApp.id === appConfig.id;
               return (
@@ -309,7 +386,7 @@ export function ChatPage({ appId }: ChatPageProps) {
             onClick={clearAll}
             disabled={clearingAll || !hasAnyMessages}
             className="text-xs text-zinc-500 hover:text-rose-600 dark:hover:text-rose-400 px-2.5 py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Clear message history across both widgets"
+            title="Clear message history across both widgets and retract vault memories"
           >
             {clearingAll ? "Clearing..." : "Clear both"}
           </button>
@@ -378,14 +455,17 @@ export function ChatPage({ appId }: ChatPageProps) {
               id="memory"
               title="Memory Engine"
               badge="Memory Model"
-              subtitle="Dedicated DB model ready for Memory Engine"
+              subtitle="Permissions-aware context + vault memory storage"
               accentColor={appConfig.accent.color}
               messages={memoryMessages}
               loading={memoryLoading || initialLoading}
               clearing={memoryClearing}
               onClear={clearMemory}
+              onRequestAccess={() => setConsentModalOpen(true)}
+              onRetract={handleRetractVaultMemories}
+              retracting={retracting}
               emptyTitle="Memory Engine Model"
-              emptyDescription="This widget maintains its own separate database model. It receives the same input and will connect to your memory engine."
+              emptyDescription="Connected to your Personal Memory Vault. Retrieves context within granted permissions and stores personal facts across sessions."
               suggestedPrompts={appConfig.suggestedPrompts}
               onSelectPrompt={p => setInput(p)}
             />
@@ -430,6 +510,14 @@ export function ChatPage({ appId }: ChatPageProps) {
           </div>
         </div>
       </footer>
+
+      {/* Consent Request Modal for Requesting New Grants */}
+      <ConsentRequestModal
+        isOpen={consentModalOpen}
+        onClose={() => setConsentModalOpen(false)}
+        appId={appConfig.id}
+        appName={appConfig.name}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { ApiResponse } from "@/server/lib/api-response";
 import { withErrorHandler } from "@/server/middlewares/error-handler.middleware";
 import { validateBody } from "@/server/middlewares/validate-body.middleware";
 import { chatService } from "@/server/services/chat.service";
+import { vaultClient } from "@/server/lib/vault-client";
 import { sendMessageSchema } from "@/server/validators/chat.validator";
 
 export const getChat = withErrorHandler(async (request: Request) => {
@@ -45,18 +46,33 @@ export const deleteChat = withErrorHandler(async (request: Request) => {
   const url = new URL(request.url);
   const appId = url.searchParams.get("appId");
   const type = url.searchParams.get("type") ?? "all";
+  const retractVault = url.searchParams.get("retract") === "true";
 
   if (!appId) {
     throw new ApiError(400, "Missing required query parameter: appId");
   }
 
+  let deletedFromVault = 0;
+
   if (type === "direct") {
     await chatService.clearDirectHistory(appId);
   } else if (type === "memory") {
     await chatService.clearMemoryHistory(appId);
+    if (retractVault) {
+      const res = await vaultClient.retractMemories(appId, { sessionId: `hub_${appId}` });
+      deletedFromVault = res.deleted ?? 0;
+    }
   } else {
     await chatService.clearAllHistory(appId);
+    if (retractVault) {
+      const res = await vaultClient.retractMemories(appId, { sessionId: `hub_${appId}` });
+      deletedFromVault = res.deleted ?? 0;
+    }
   }
 
-  return new ApiResponse(200, { ok: true, type }, `Chat history (${type}) for ${appId} cleared`);
+  return new ApiResponse(
+    200,
+    { ok: true, type, deletedFromVault },
+    `Chat history (${type}) for ${appId} cleared${deletedFromVault > 0 ? ` and ${deletedFromVault} memories retracted from vault` : ""}`
+  );
 });

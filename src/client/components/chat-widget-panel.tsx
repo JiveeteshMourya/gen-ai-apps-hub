@@ -15,6 +15,9 @@ interface ChatWidgetPanelProps {
   loading: boolean;
   clearing: boolean;
   onClear: () => void;
+  onRequestAccess?: () => void;
+  onRetract?: () => void;
+  retracting?: boolean;
   emptyTitle: string;
   emptyDescription: string;
   emptyIcon?: React.ReactNode;
@@ -32,6 +35,9 @@ export function ChatWidgetPanel({
   loading,
   clearing,
   onClear,
+  onRequestAccess,
+  onRetract,
+  retracting = false,
   emptyTitle,
   emptyDescription,
   emptyIcon,
@@ -92,11 +98,33 @@ export function ChatWidgetPanel({
         </div>
 
         <div className="flex items-center gap-1.5">
+          {isMemory && onRequestAccess && (
+            <button
+              onClick={onRequestAccess}
+              className="text-[11px] font-medium text-purple-600 dark:text-purple-400 bg-purple-100/70 dark:bg-purple-950/60 hover:bg-purple-200/70 border border-purple-200 dark:border-purple-800 px-2 py-1 rounded-md transition-colors"
+              title="Request new category grants from vault owner"
+            >
+              + Request Access
+            </button>
+          )}
+
+          {isMemory && onRetract && (
+            <button
+              onClick={onRetract}
+              disabled={retracting}
+              className="text-[11px] text-zinc-400 hover:text-amber-600 dark:hover:text-amber-400 px-2 py-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Retract all memories stored in Vault by this app"
+            >
+              {retracting ? "Retracting..." : "Retract"}
+            </button>
+          )}
+
           {messages.length > 0 && (
             <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
               {messages.length} msg{messages.length === 1 ? "" : "s"}
             </span>
           )}
+
           <button
             onClick={onClear}
             disabled={clearing || messages.length === 0}

@@ -2,6 +2,7 @@ import { openai } from "@/server/lib/ai";
 import {
   vaultClient,
   type VaultFetchResult,
+  type VaultPermissionsResult,
   type VaultWriteResult,
 } from "@/server/lib/vault-client";
 import { memoryChatRepository } from "@/server/repository/memory-chat.repository";
@@ -20,7 +21,7 @@ import {
   type WriteMemoryRequest,
 } from "../validators/vault-write.validator";
 
-const VAULT_QUERY_BUILDER_PROMPT = `You are an expert query generator for a Personal Memory Vault (docs/public-api.md).
+const VAULT_QUERY_BUILDER_BASE_PROMPT = `You are an expert query generator for a Personal Memory Vault (docs/public-api.md).
 The vault stores personal facts, history, preferences, goals, and constraints across various apps.
 When given a user's current message, recent conversation history, and the host app's persona, generate a strictly valid JSON object to query the vault context endpoint (POST /api/v1/context).
 
@@ -29,7 +30,7 @@ Valid JSON structure to output:
   "query": "A clear, specific natural language query asking what we need to know about the user (max 2000 chars, required)",
   "purpose": "A concise description of why this context is needed (max 200 chars)",
   "task": "One of: 'personalize' | 'answer' | 'recommend' | 'plan' | 'summarize_profile' | 'check_constraints'",
-  "categories": ["optional array of 1 to 16 valid categories from: 'identity', 'preferences', 'goals', 'interests', 'activity', 'sleep', 'diet', 'health', 'mood', 'work', 'education', 'social', 'relationships', 'finance', 'travel', 'other'. If unsure, omit this field"],
+  "categories": ["optional array of granted categories to filter. If unsure, omit this field"],
   "origin": "One of: 'any' | 'other_apps' | 'this_app' (default 'other_apps' to discover cross-app memory)",
   "recency": "One of: 'recent' | 'balanced' | 'all_time'",
   "maxChars": 100,
@@ -39,7 +40,7 @@ Valid JSON structure to output:
 
 Rules:
 1. "query" MUST be a direct question asking for relevant user facts/history (e.g. "What are the user's workout preferences, recent routines, or physical constraints?").
-2. Only use valid categories from the list above. Never make up new categories. If unsure, omit "categories" so all granted categories are searched.
+2. Only use valid categories from the app's granted category list. Never ask for categories the app is not granted to see.
 3. Keep maxChars at 100.
 4. Output ONLY valid JSON matching this schema.`;
 
@@ -79,20 +80,50 @@ function getAppDomain(appId: string): string {
 
 export const memoryEngineService = {
   /**
-   * Step 1 (Read): Use a small GPT model to transform the user message into a strictly valid Zod object
-   * for the Personal Memory Vault's POST /api/v1/context endpoint.
+   * Step 1 (Read Awareness): Fetch the app's actual permissions from GET /api/v1/permissions,
+   * then use a small GPT model to draft a context query aware of granted categories.
    */
   buildContextRequest: async (
+    appId: string,
     appConfig: AppConfig | undefined,
     userMessage: string,
     recentMessages: Array<{ role: string; content: string }>
-  ): Promise<VaultContextRequest> => {
+  ): Promise<VaultContextRequest | null> => {
+    // 1. Check permissions first before drafting the query
+    const permissions: VaultPermissionsResult = await vaultClient.fetchPermissions(appId);
+    const readGrants = permissions.data?.read ?? [];
+    const grantedCategories = readGrants.map(g => g.category);
+    const sources = permissions.data?.sources;
+    const hasAllowedSource = sources
+      ? sources.ownEntries || sources.thisApp || sources.otherAppsCount > 0
+      : true;
+
+    // If permissions check succeeded and the app has no read grants or no allowed source:
+    if (permissions.ok && (grantedCategories.length === 0 || !hasAllowedSource)) {
+      console.warn(
+        `[MemoryEngineService] App "${appId}" has no granted read categories or allowed sources in the vault. Skipping context query.`
+      );
+      return null;
+    }
+
+    // 2. Build permissions instructions for the small GPT model
+    const grantedListString =
+      grantedCategories.length > 0
+        ? grantedCategories.map(c => `"${c}"`).join(", ")
+        : MEMORY_CATEGORIES.map(c => `"${c}"`).join(", ");
+
+    const dynamicSystemPrompt = `${VAULT_QUERY_BUILDER_BASE_PROMPT}
+
+CRITICAL PERMISSIONS SCOPE:
+This app has read access ONLY to the following granted categories in the user's vault: [${grantedListString}].
+Your "query" and any "categories" list MUST be strictly limited to these granted categories! Never ask for categories outside this scope.`;
+
     try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: VAULT_QUERY_BUILDER_PROMPT },
+          { role: "system", content: dynamicSystemPrompt },
           {
             role: "user",
             content: JSON.stringify({
@@ -104,6 +135,7 @@ export const memoryEngineService = {
                     description: appConfig.description,
                   }
                 : { name: "Assistant" },
+              grantedCategories: grantedCategories.length > 0 ? grantedCategories : undefined,
               recentTurns: recentMessages.slice(-4).map(m => ({
                 role: m.role,
                 content: m.content,
@@ -152,8 +184,11 @@ export const memoryEngineService = {
       }
 
       if (Array.isArray(parsed.categories)) {
-        const validCats = parsed.categories.filter((c: unknown): c is MemoryCategory =>
-          MEMORY_CATEGORIES.includes(c as MemoryCategory)
+        // Restrict categories exclusively to granted categories
+        const validCats = parsed.categories.filter(
+          (c: unknown): c is MemoryCategory =>
+            MEMORY_CATEGORIES.includes(c as MemoryCategory) &&
+            (grantedCategories.length === 0 || grantedCategories.includes(c as MemoryCategory))
         );
         if (validCats.length > 0) {
           cleaned.categories = validCats.slice(0, 16);
@@ -174,11 +209,14 @@ export const memoryEngineService = {
         "[MemoryEngineService] Failed to generate structured context query with small GPT model:",
         err
       );
-      // Resilient fallback strictly matching the Zod schema
+      // Resilient fallback strictly matching the Zod schema and granted categories
+      const fallbackCategories =
+        grantedCategories.length > 0 ? grantedCategories.slice(0, 4) : undefined;
       return vaultContextRequestSchema.parse({
         query: userMessage.slice(0, 2000),
         purpose: appConfig ? `${appConfig.shortName} context` : "App context",
         task: "personalize",
+        categories: fallbackCategories,
         origin: "other_apps",
         perspective: "third_person",
         includeSources: true,
@@ -251,6 +289,7 @@ export const memoryEngineService = {
         importance,
         domain: appConfig ? getAppDomain(appConfig.id) : undefined,
         categoryHints: validHints,
+        sessionId: `hub_${appId}`,
         visibility: "shared",
         dryRun: false,
       });
@@ -272,11 +311,11 @@ export const memoryEngineService = {
   /**
    * Complete pipeline for the Memory Engine chat widget:
    * 1. Save user input into memory_messages.
-   * 2. In parallel:
-   *    a) Extract facts with small OpenAI model -> validate with Zod -> call POST /api/v1/memories.
-   *    b) Build context request with small GPT model -> validate with Zod -> call POST /api/v1/context.
-   * 3. Inject memory engine response + last 5 messages + user input into second OpenAI call.
-   * 4. Save assistant reply in memory_messages and return response for the UI.
+   * 2. Check /permissions FIRST, then small GPT model drafts a permissions-aware context query.
+   * 3. Send query to POST /api/v1/context and await response.
+   * 4. AFTER context query ends, extract facts from user input and store via POST /api/v1/memories.
+   * 5. Inject memory engine response + last 5 messages + user input into second OpenAI call.
+   * 6. Save assistant reply in memory_messages and return response for the UI.
    */
   processChat: async (
     appId: string,
@@ -294,15 +333,21 @@ export const memoryEngineService = {
     const appConfig = getAppConfig(appId);
     const baseSystemPrompt = appConfig ? appConfig.systemPrompt : SYSTEM_PROMPT;
 
-    // 2. FIRST: Query the Memory Engine for prior context.
-    // Build context request with small GPT model and retrieve context from the vault.
+    // 2. FIRST: Query the Memory Engine for prior context (using /permissions awareness).
     const contextRequest = await memoryEngineService.buildContextRequest(
+      appId,
       appConfig,
       message,
       recent
     );
-    const vaultResult: VaultFetchResult = await vaultClient.fetchContext(appId, contextRequest);
-    const vaultContext = vaultResult.ok && vaultResult.context ? vaultResult.context.trim() : "";
+
+    let vaultContext = "";
+    let vaultResult: VaultFetchResult | null = null;
+
+    if (contextRequest) {
+      vaultResult = await vaultClient.fetchContext(appId, contextRequest);
+      vaultContext = vaultResult.ok && vaultResult.context ? vaultResult.context.trim() : "";
+    }
 
     // 3. AFTER the context query has ended, extract and store new facts into the Memory Engine.
     // This guarantees the Memory Engine never returns back information that the user just provided in this current turn.
@@ -330,9 +375,9 @@ export const memoryEngineService = {
 
     const reply = completion.choices[0].message.content ?? "";
 
-    // 6. Aggregate metadata (sources, coverage, write receipt)
+    // 5. Aggregate metadata (sources, coverage, write receipt)
     const combinedMetadata: Record<string, unknown> = {};
-    if (vaultResult.data) {
+    if (vaultResult?.data) {
       combinedMetadata.sources = vaultResult.data.sources;
       combinedMetadata.coverage = vaultResult.data.coverage;
       combinedMetadata.withheldCategories = vaultResult.data.withheldCategories;
