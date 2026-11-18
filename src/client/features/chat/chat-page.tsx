@@ -439,7 +439,7 @@ export function ChatPage({ appId }: ChatPageProps) {
               clearing={directClearing}
               onClear={clearDirect}
               emptyTitle="Direct OpenAI Model"
-              emptyDescription="This widget sends your prompt directly to OpenAI using standard model context, without memory vault integration."
+              emptyDescription="Standard direct LLM context. Does not connect to the Personal Memory Vault and retains no knowledge between sessions or across apps."
               suggestedPrompts={appConfig.suggestedPrompts}
               onSelectPrompt={p => setInput(p)}
             />
@@ -464,8 +464,8 @@ export function ChatPage({ appId }: ChatPageProps) {
               onRequestAccess={() => setConsentModalOpen(true)}
               onRetract={handleRetractVaultMemories}
               retracting={retracting}
-              emptyTitle="Memory Engine Model"
-              emptyDescription="Connected to your Personal Memory Vault. Retrieves context within granted permissions and stores personal facts across sessions."
+              emptyTitle="Personal Memory Engine"
+              emptyDescription="Connected to your Personal Memory Vault. Automatically retrieves relevant past context within granted categories and remembers new facts you state."
               suggestedPrompts={appConfig.suggestedPrompts}
               onSelectPrompt={p => setInput(p)}
             />
