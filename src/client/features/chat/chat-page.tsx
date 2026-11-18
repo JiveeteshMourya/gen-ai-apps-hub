@@ -143,6 +143,8 @@ export function ChatPage({ appId }: ChatPageProps) {
           appId,
           role: "assistant",
           content: body.data.reply,
+          context: body.data.context ?? null,
+          metadata: body.data.metadata ?? null,
           createdAt: new Date(),
         };
         setMemoryMessages(prev => [...prev, reply]);

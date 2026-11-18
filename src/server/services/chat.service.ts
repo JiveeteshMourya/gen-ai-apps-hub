@@ -1,6 +1,7 @@
 import { openai } from "@/server/lib/ai";
 import { directChatRepository } from "@/server/repository/direct-chat.repository";
 import { memoryChatRepository } from "@/server/repository/memory-chat.repository";
+import { memoryEngineService } from "@/server/services/memory-engine.service";
 import { getAppConfig } from "@/shared/constants/apps.constants";
 import { SYSTEM_PROMPT } from "@/shared/constants/chat.constants";
 
@@ -33,30 +34,18 @@ export const chatService = {
 
   clearDirectHistory: (appId: string) => directChatRepository.deleteByApp(appId),
 
-  // --- Memory Chat (Right Widget: memory_messages model) ---
+  // --- Memory Chat (Right Widget: memory_messages model + Memory Engine) ---
   getMemoryHistory: (appId: string) => memoryChatRepository.getAllByApp(appId),
 
-  sendMemory: async (appId: string, message: string): Promise<string> => {
-    await memoryChatRepository.insertUser(appId, message);
-
-    const recent = await memoryChatRepository.getRecentByApp(appId);
-    const appConfig = getAppConfig(appId);
-    const baseSystemPrompt = appConfig ? appConfig.systemPrompt : SYSTEM_PROMPT;
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: baseSystemPrompt },
-        ...recent.map(m => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
-      ],
-    });
-
-    const reply = completion.choices[0].message.content ?? "";
-    await memoryChatRepository.insertAssistant(appId, reply);
-    return reply;
+  sendMemory: async (
+    appId: string,
+    message: string
+  ): Promise<{
+    reply: string;
+    context: string | null;
+    metadata: Record<string, unknown> | null;
+  }> => {
+    return memoryEngineService.processChat(appId, message);
   },
 
   clearMemoryHistory: (appId: string) => memoryChatRepository.deleteByApp(appId),

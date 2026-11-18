@@ -10,15 +10,13 @@ export interface Message {
   appId: AppId | string;
   role: Role | string;
   content: string;
+  context?: string | null;
+  metadata?: Record<string, unknown> | null;
   createdAt: Date | string;
 }
 
 export type DirectMessage = Message;
-
-export interface MemoryMessage extends Message {
-  context?: string | null;
-  metadata?: Record<string, unknown> | null;
-}
+export type MemoryMessage = Message;
 
 export interface ChatHistoryResponse {
   direct: DirectMessage[];

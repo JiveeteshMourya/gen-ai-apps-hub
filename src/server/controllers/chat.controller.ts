@@ -32,12 +32,13 @@ export const getChat = withErrorHandler(async (request: Request) => {
 export const postChat = withErrorHandler(async (request: Request) => {
   const { message, appId, type } = await validateBody(request, sendMessageSchema);
 
-  const reply =
-    type === "memory"
-      ? await chatService.sendMemory(appId, message)
-      : await chatService.sendDirect(appId, message);
+  if (type === "memory") {
+    const result = await chatService.sendMemory(appId, message);
+    return new ApiResponse(200, { ...result, type }, "Memory reply generated");
+  }
 
-  return new ApiResponse(200, { reply, type }, "Reply generated");
+  const reply = await chatService.sendDirect(appId, message);
+  return new ApiResponse(200, { reply, type }, "Direct reply generated");
 });
 
 export const deleteChat = withErrorHandler(async (request: Request) => {
